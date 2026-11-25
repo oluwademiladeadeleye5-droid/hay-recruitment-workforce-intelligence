@@ -1,0 +1,6 @@
+{
+  "name": "Hay Recruitment: Workforce Intelligence Platform",
+  "description": "Boardroom-ready UK workforce telemetry, burnout risk scoring, Power BI-style cross-filtering, multi-sheet Excel ingestion, and AI HR intervention platform for Hay Recruitment.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

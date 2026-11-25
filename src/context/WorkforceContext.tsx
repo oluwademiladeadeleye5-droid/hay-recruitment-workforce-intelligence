@@ -100,7 +100,7 @@ export const WorkforceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [settings, setSettings] = useState<PlatformSettings>(DEFAULT_PLATFORM_SETTINGS);
   const [savedPlans, setSavedPlans] = useState<ActionPlan[]>([]);
   const [filters, setFilters] = useState<CrossFilterState>(EMPTY_FILTERS);
-  const [activeView, setActiveView] = useState<StartupView>('landing');
+  const [activeView, setActiveView] = useState<StartupView>('workspace');
   const [activePage, setActivePage] = useState<NavPageId>('overview');
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
   const [presentationMode, setPresentationMode] = useState(false);
@@ -158,7 +158,7 @@ export const WorkforceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
         if (!active) return;
         setSettings(loadedSettings);
-        setActiveView(loadedSettings.startupView || 'landing');
+        setActiveView('workspace');
         setActivePage(loadedSettings.defaultLandingPage || 'overview');
         setSavedPlans(loadedPlans);
 

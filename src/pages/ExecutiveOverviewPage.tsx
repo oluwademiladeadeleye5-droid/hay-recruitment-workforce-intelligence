@@ -1,5 +1,13 @@
 import React, { useMemo } from 'react';
-import { Sparkles, FilterX, Eye } from 'lucide-react';
+import {
+  Sparkles,
+  FilterX,
+  Eye,
+  AlertTriangle,
+  Users,
+  Lightbulb,
+  SlidersHorizontal,
+} from 'lucide-react';
 import { useWorkforce } from '../context/WorkforceContext';
 import { FilterBar } from '../components/FilterBar';
 import { ExecutiveKpiRow } from '../components/ExecutiveKpiRow';
@@ -10,6 +18,7 @@ export const ExecutiveOverviewPage: React.FC = () => {
     dataset,
     filteredRecords,
     kpis,
+    overallKpis,
     isFiltered,
     resetAllFilters,
     setActivePage,
@@ -73,6 +82,48 @@ export const ExecutiveOverviewPage: React.FC = () => {
           <span>See Who Needs Help ({kpis.needsAttentionCount})</span>
         </button>
       </section>
+
+      {/* Quick-Jump Workspace Pills */}
+      <nav
+        aria-label="Explore Workspace"
+        className="flex flex-wrap items-center gap-2 no-print"
+      >
+        <span className="text-xs font-semibold text-[#425466] dark:text-slate-400 mr-1">
+          Explore Workspace:
+        </span>
+        <button
+          type="button"
+          onClick={() => setActivePage('watchlist')}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-white dark:bg-[#0F2035] border border-[#E2E8F0] dark:border-[#1E3A5F] text-[#0A2540] dark:text-slate-200 hover:border-[#E11D48] hover:text-[#E11D48] dark:hover:text-[#FB7185] transition-colors cursor-pointer whitespace-nowrap"
+        >
+          <AlertTriangle className="w-3.5 h-3.5 text-[#E11D48] dark:text-[#FB7185]" />
+          <span>Who Needs Help ({overallKpis.needsAttentionCount})</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setActivePage('directory')}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-white dark:bg-[#0F2035] border border-[#E2E8F0] dark:border-[#1E3A5F] text-[#0A2540] dark:text-slate-200 hover:border-[#00A859] hover:text-[#008A48] dark:hover:text-[#10B981] transition-colors cursor-pointer whitespace-nowrap"
+        >
+          <Users className="w-3.5 h-3.5 text-[#00A859] dark:text-[#10B981]" />
+          <span>All Staff ({dataset.records.length})</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setActivePage('insights')}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-white dark:bg-[#0F2035] border border-[#E2E8F0] dark:border-[#1E3A5F] text-[#0A2540] dark:text-slate-200 hover:border-[#533AFD] hover:text-[#533AFD] dark:hover:text-[#7C6BFF] transition-colors cursor-pointer whitespace-nowrap"
+        >
+          <Lightbulb className="w-3.5 h-3.5 text-[#533AFD] dark:text-[#7C6BFF]" />
+          <span>Insights & AI Chat</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setActivePage('data-hub')}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-white dark:bg-[#0F2035] border border-[#E2E8F0] dark:border-[#1E3A5F] text-[#0A2540] dark:text-slate-200 hover:border-[#00A859] hover:text-[#008A48] dark:hover:text-[#10B981] transition-colors cursor-pointer whitespace-nowrap"
+        >
+          <SlidersHorizontal className="w-3.5 h-3.5 text-[#00A859] dark:text-[#10B981]" />
+          <span>Upload & Settings</span>
+        </button>
+      </nav>
 
       {/* Filter Bar + Prominent Reset Banner */}
       <FilterBar />

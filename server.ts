@@ -10,9 +10,26 @@ const __dirname = path.dirname(__filename);
 const PORT = Number(process.env.PORT) || 3000;
 const IS_PROD = process.env.NODE_ENV === 'production';
 
+function resolveGeminiApiKey(): string {
+  const viteEnv = (import.meta as { env?: Record<string, string | undefined> }).env;
+  const candidates = [
+    viteEnv?.VITE_GEMINI_API_KEY,
+    process.env.GEMINI_API_KEY,
+    process.env.API_KEY,
+    process.env.VITE_GEMINI_API_KEY,
+  ];
+  for (const candidate of candidates) {
+    const cleaned = (candidate || '').trim();
+    if (cleaned && cleaned !== 'MY_GEMINI_API_KEY') {
+      return cleaned;
+    }
+  }
+  return '';
+}
+
 function getGeminiClient(): GoogleGenAI | null {
-  const apiKey = (process.env.GEMINI_API_KEY || '').trim();
-  if (!apiKey || apiKey === 'MY_GEMINI_API_KEY') {
+  const apiKey = resolveGeminiApiKey();
+  if (!apiKey) {
     return null;
   }
   return new GoogleGenAI({
@@ -25,9 +42,67 @@ function getGeminiClient(): GoogleGenAI | null {
   });
 }
 
+function extractGeminiText(response: {
+  text?: string;
+  candidates?: Array<{
+    finishReason?: string;
+    content?: { parts?: Array<{ text?: string }> };
+  }>;
+}): string {
+  const direct = typeof response.text === 'string' ? response.text.trim() : '';
+  if (direct) return direct;
+
+  const parts = response.candidates?.[0]?.content?.parts;
+  if (Array.isArray(parts)) {
+    const joined = parts
+      .map((part) => (typeof part?.text === 'string' ? part.text : ''))
+      .join('')
+      .trim();
+    if (joined) return joined;
+  }
+  return '';
+}
+
 function sanitizeText(val: unknown, maxLen: number): string {
   if (typeof val !== 'string') return '';
   return val.trim().slice(0, maxLen);
+}
+
+async function generateWithActiveModel(
+  ai: GoogleGenAI,
+  params: {
+    contents: unknown;
+    config?: Record<string, unknown>;
+  }
+) {
+  const models = ['gemini-4-hydrogen', 'gemini-3.1-flash-lite'] as const;
+  let lastError: unknown;
+  for (let i = 0; i < models.length; i += 1) {
+    try {
+      return await ai.models.generateContent({
+        model: models[i],
+        contents: params.contents as never,
+        config: params.config as never,
+      });
+    } catch (err: unknown) {
+      lastError = err;
+      const msg = (err instanceof Error ? err.message : String(err || '')).toLowerCase();
+      const status =
+        typeof (err as { status?: unknown })?.status === 'number'
+          ? (err as { status: number }).status
+          : 0;
+      const isRetryableOnAlternateModel =
+        status === 503 ||
+        status === 404 ||
+        msg.includes('unavailable') ||
+        msg.includes('high demand') ||
+        msg.includes('not_found');
+      if (!isRetryableOnAlternateModel || i === models.length - 1) {
+        throw err;
+      }
+    }
+  }
+  throw lastError;
 }
 
 async function startServer() {
@@ -35,8 +110,7 @@ async function startServer() {
   app.use(express.json({ limit: '2mb' }));
 
   app.get('/api/health', (_req, res) => {
-    const apiKey = (process.env.GEMINI_API_KEY || '').trim();
-    const aiConfigured = Boolean(apiKey && apiKey !== 'MY_GEMINI_API_KEY');
+    const aiConfigured = Boolean(resolveGeminiApiKey());
     res.json({ ok: true, aiConfigured });
   });
 
@@ -44,7 +118,7 @@ async function startServer() {
     const ai = getGeminiClient();
     if (!ai) {
       res.status(503).json({
-        error: 'Gemini AI is currently offline because GEMINI_API_KEY is not configured in Settings > Secrets. All analytics, charts, and deterministic insights remain fully functional.',
+        error: 'API key not configured in server environment variables.',
         code: 'MISSING_API_KEY',
       });
       return;
@@ -55,7 +129,7 @@ async function startServer() {
       const tone = sanitizeText(req.body?.tone, 80) || 'Executive HR Brief';
       const ukGuidance = Boolean(req.body?.ukGuidance);
       const contextSummary = sanitizeText(req.body?.contextSummary, 16000);
-      const history = Array.isArray(req.body?.history) ? req.body.history.slice(-8) : [];
+      const history = Array.isArray(req.body?.history) ? req.body.history.slice(-10) : [];
 
       if (!prompt) {
         res.status(400).json({ error: 'Prompt is required.' });
@@ -68,44 +142,132 @@ async function startServer() {
         ukGuidance
           ? 'Keep recommendations practical and supportive, aligned with UK annual leave and employee wellbeing best practices.'
           : 'Focus on practical workload balancing, clearing late tasks, and checking in on team mood.',
-        'Use ONLY the live team numbers provided in the context. Never invent staff IDs, names, or figures.',
-        'When mentioning specific staff, write their name and ID like: Oliver Bennett [HAY-1042].',
-        'Keep every answer short, easy to scan (3 to 5 short bullet points max), and directly helpful for a manager.',
+        'Use ONLY the live team numbers provided in the LIVE TEAM DATA SUMMARY below. Never invent staff IDs, names, or figures.',
+        'When mentioning specific staff, write their name and ID like: **Oliver Bennett** [HAY-1042].',
+        'If the user sends a greeting like "hello" or "hi", reply warmly in 1 to 2 short sentences, mention how many staff are currently in the live dataset, and suggest 2 or 3 helpful questions they can ask.',
+        'For data or HR questions, format your answer cleanly with Markdown bold labels and short bullet or numbered lists (3 to 5 points max) so it is effortless to scan.',
         'Never use em dashes in your responses. Use periods, commas, or bullet points instead.',
-      ].join(' ');
-
-      const conversationText = history
-        .map((m: { role?: unknown; content?: unknown }) => {
-          const role = m?.role === 'user' ? 'User' : 'Helper';
-          const content = sanitizeText(m?.content, 1500);
-          return content ? `${role}: ${content}` : '';
-        })
-        .filter(Boolean)
-        .join('\n\n');
-
-      const fullContents = [
-        '=== LIVE TEAM DATA ===',
-        contextSummary,
-        conversationText ? `=== EARLIER MESSAGES ===\n${conversationText}` : '',
-        `=== QUESTION ===\n${prompt}`,
+        contextSummary ? `\n=== LIVE TEAM DATA SUMMARY ===\n${contextSummary}` : '',
       ]
         .filter(Boolean)
-        .join('\n\n');
+        .join('\n');
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-4-hydrogen',
-        contents: fullContents,
+      // Build clean alternating user/model conversation turns for multi-turn context
+      const turns: Array<{ role: 'user' | 'model'; parts: Array<{ text: string }> }> = [];
+      for (const m of history) {
+        const text = sanitizeText((m as { content?: unknown })?.content, 1500);
+        if (!text) continue;
+        const role: 'user' | 'model' =
+          (m as { role?: unknown })?.role === 'user' ? 'user' : 'model';
+        // Ensure conversation starts with a user turn
+        if (turns.length === 0 && role === 'model') continue;
+        const last = turns[turns.length - 1];
+        if (last && last.role === role) {
+          last.parts[0].text += `\n${text}`;
+        } else {
+          turns.push({ role, parts: [{ text }] });
+        }
+      }
+
+      const lastTurn = turns[turns.length - 1];
+      if (lastTurn && lastTurn.role === 'user') {
+        lastTurn.parts[0].text = prompt;
+      } else {
+        turns.push({ role: 'user', parts: [{ text: prompt }] });
+      }
+
+      const response = await generateWithActiveModel(ai, {
+        contents: turns,
         config: {
           systemInstruction,
         },
       });
 
+      const rawReply = extractGeminiText(response);
+      if (!rawReply) {
+        const finishReason = response.candidates?.[0]?.finishReason;
+        const blockReason = (response as { promptFeedback?: { blockReason?: string } })?.promptFeedback?.blockReason;
+        const reasonDetail = blockReason
+          ? `Request blocked (${blockReason}).`
+          : finishReason
+            ? `Model returned empty output (finish reason: ${finishReason}).`
+            : 'Model returned an empty response.';
+        res.status(502).json({
+          error: `${reasonDetail} Please retry or rephrase your question.`,
+          code: 'EMPTY_RESPONSE',
+        });
+        return;
+      }
+
+      const cleanReply = rawReply.replace(/\s*—\s*/g, ', ');
+
       res.json({
-        reply: response.text || 'No response generated.',
+        reply: cleanReply,
+        source: 'gemini',
       });
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Failed to get an answer.';
-      res.status(502).json({ error: message });
+      const rawMessage = err instanceof Error ? err.message : String(err || '');
+      let extractedMessage = rawMessage;
+      try {
+        const parsed = JSON.parse(rawMessage) as {
+          error?: { code?: number; message?: string; status?: string };
+          message?: string;
+        };
+        if (parsed?.error?.message) {
+          extractedMessage = parsed.error.message;
+        } else if (parsed?.message) {
+          extractedMessage = parsed.message;
+        }
+      } catch {
+        // Not JSON, keep rawMessage
+      }
+
+      const normalized = `${rawMessage} ${extractedMessage}`.toLowerCase();
+      const cleanExtracted = extractedMessage.replace(/\s*—\s*/g, ', ').trim();
+      const errStatus =
+        typeof (err as { status?: unknown })?.status === 'number'
+          ? (err as { status: number }).status
+          : 0;
+
+      if (
+        errStatus === 429 ||
+        normalized.includes('resource_exhausted') ||
+        normalized.includes('rate limit') ||
+        normalized.includes('quota')
+      ) {
+        res.status(429).json({
+          error: 'Quota or rate limit exceeded: please wait a moment and retry.',
+          code: 'RATE_LIMIT',
+        });
+        return;
+      }
+
+      if (
+        errStatus === 401 ||
+        errStatus === 403 ||
+        normalized.includes('api_key_invalid') ||
+        normalized.includes('api key not valid') ||
+        normalized.includes('permission_denied')
+      ) {
+        res.status(403).json({
+          error: 'Invalid API key: please verify your Gemini API key in server environment variables.',
+          code: 'INVALID_API_KEY',
+        });
+        return;
+      }
+
+      if (errStatus === 404 || normalized.includes('not_found')) {
+        res.status(404).json({
+          error: cleanExtracted || 'Requested Gemini model is unavailable right now.',
+          code: 'MODEL_UNAVAILABLE',
+        });
+        return;
+      }
+
+      res.status(502).json({
+        error: cleanExtracted || 'Unable to reach Gemini AI right now. Please retry.',
+        code: 'UPSTREAM_ERROR',
+      });
     }
   });
 
@@ -142,8 +304,7 @@ async function startServer() {
         .filter(Boolean)
         .join(' ');
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-4-hydrogen',
+      const response = await generateWithActiveModel(ai, {
         contents: `Create a friendly, practical support tip card with 3 short action tips for this ${targetType}:\n\n${targetSummary}`,
         config: {
           systemInstruction,
@@ -165,7 +326,7 @@ async function startServer() {
         },
       });
 
-      const rawText = (response.text || '{}').trim();
+      const rawText = extractGeminiText(response) || '{}';
       const parsed = JSON.parse(rawText);
       res.json({ plan: parsed });
     } catch (err: unknown) {
@@ -192,15 +353,14 @@ async function startServer() {
         return;
       }
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-4-hydrogen',
+      const response = await generateWithActiveModel(ai, {
         contents: `Write a short, plain-English team summary (2 short paragraphs + 4 clear next steps) for Hay Recruitment leadership using only these numbers:\n\n${metricsSummary}`,
         config: {
           systemInstruction: `You are summarizing team wellbeing and workload for Hay Recruitment leadership. Style: ${tone}. Keep the language clear, human, and free of technical jargon. Never use em dashes in your responses. Use periods, commas, or bullet points instead.`,
         },
       });
 
-      res.json({ brief: response.text || '' });
+      res.json({ brief: extractGeminiText(response) });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to generate summary.';
       res.status(502).json({ error: message });

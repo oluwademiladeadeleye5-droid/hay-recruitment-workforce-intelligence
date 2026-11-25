@@ -249,7 +249,7 @@ export const LandingPage: React.FC = () => {
       benefits: [
         'See how many staff need a check-in today without digging through spreadsheets.',
         'Spot employees carrying heavy workloads alongside unused annual leave.',
-        'Copy ready-made plain-English takeaways straight into leadership slides.',
+        'Copy ready-made plain-English takeaways straight into leadership updates.',
       ],
       statTitle: 'Staff Flagged for Check-In',
       statValue: `${overallKpis.needsAttentionCount} of ${overallKpis.totalWorkforce}`,

@@ -17,7 +17,7 @@ export const DEFAULT_PLATFORM_SETTINGS: PlatformSettings = {
   themeMode: 'light',
   tableDensity: 'comfortable',
   defaultLandingPage: 'overview',
-  startupView: 'landing',
+  startupView: 'workspace',
 };
 
 function openDatabase(): Promise<IDBDatabase> {

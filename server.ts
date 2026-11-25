@@ -46,16 +46,26 @@ function extractGeminiText(response: {
   text?: string;
   candidates?: Array<{
     finishReason?: string;
-    content?: { parts?: Array<{ text?: string }> };
+    content?: { parts?: Array<{ text?: string; thought?: boolean }> };
   }>;
 }): string {
-  const direct = typeof response.text === 'string' ? response.text.trim() : '';
-  if (direct) return direct;
+  try {
+    const direct = typeof response.text === 'string' ? response.text.trim() : '';
+    if (direct) return direct;
+  } catch {
+    // Fall back to candidates[0].content.parts
+  }
 
   const parts = response.candidates?.[0]?.content?.parts;
   if (Array.isArray(parts)) {
     const joined = parts
-      .map((part) => (typeof part?.text === 'string' ? part.text : ''))
+      .filter(
+        (part) =>
+          !part?.thought &&
+          typeof part?.text === 'string' &&
+          part.text.trim().length > 0
+      )
+      .map((part) => part.text as string)
       .join('')
       .trim();
     if (joined) return joined;
@@ -75,7 +85,7 @@ async function generateWithActiveModel(
     config?: Record<string, unknown>;
   }
 ) {
-  const models = ['gemini-4-hydrogen', 'gemini-3.1-flash-lite'] as const;
+  const models = ['gemini-3.5-flash-lite', 'gemini-3.8-flash'] as const;
   let lastError: unknown;
   for (let i = 0; i < models.length; i += 1) {
     try {
@@ -184,16 +194,13 @@ async function startServer() {
       });
 
       const rawReply = extractGeminiText(response);
+      const finishReason = response.candidates?.[0]?.finishReason;
       if (!rawReply) {
-        const finishReason = response.candidates?.[0]?.finishReason;
         const blockReason = (response as { promptFeedback?: { blockReason?: string } })?.promptFeedback?.blockReason;
-        const reasonDetail = blockReason
-          ? `Request blocked (${blockReason}).`
-          : finishReason
-            ? `Model returned empty output (finish reason: ${finishReason}).`
-            : 'Model returned an empty response.';
+        const resolvedFinishReason = finishReason || blockReason || 'UNKNOWN';
         res.status(502).json({
-          error: `${reasonDetail} Please retry or rephrase your question.`,
+          error: `Gemini stopped without reply text (finishReason: ${resolvedFinishReason}). Please retry or rephrase your question.`,
+          finishReason: resolvedFinishReason,
           code: 'EMPTY_RESPONSE',
         });
         return;
@@ -203,6 +210,7 @@ async function startServer() {
 
       res.json({
         reply: cleanReply,
+        finishReason: finishReason || 'STOP',
         source: 'gemini',
       });
     } catch (err: unknown) {

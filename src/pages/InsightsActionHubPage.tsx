@@ -139,7 +139,12 @@ export const InsightsActionHubPage: React.FC = () => {
         }),
       });
 
-      let data: { reply?: string; error?: string; code?: string } | null = null;
+      let data: {
+        reply?: string;
+        error?: string;
+        code?: string;
+        finishReason?: string;
+      } | null = null;
       try {
         data = await res.json();
       } catch {
@@ -154,18 +159,23 @@ export const InsightsActionHubPage: React.FC = () => {
         }
         const apiError =
           data?.error ||
-          (res.status === 429
-            ? 'Quota or rate limit exceeded: please wait a moment and retry.'
-            : res.status === 503
-              ? 'API key not configured in server environment variables.'
-              : `Request failed (HTTP ${res.status}). Please retry.`);
+          (data?.finishReason
+            ? `Gemini stopped without reply text (finishReason: ${data.finishReason}).`
+            : res.status === 429
+              ? 'Quota or rate limit exceeded: please wait a moment and retry.'
+              : res.status === 503
+                ? 'API key not configured in server environment variables.'
+                : `Request failed (HTTP ${res.status}). Please retry.`);
         throw new Error(apiError);
       }
 
       const replyText = typeof data?.reply === 'string' ? data.reply.trim() : '';
       if (!replyText) {
         setBadgeStatus('error');
-        throw new Error('Gemini returned an empty response. Please retry.');
+        const reason = data?.finishReason || 'UNKNOWN';
+        throw new Error(
+          `Gemini stopped without reply text (finishReason: ${reason}). Please retry.`
+        );
       }
 
       setBadgeStatus('live');

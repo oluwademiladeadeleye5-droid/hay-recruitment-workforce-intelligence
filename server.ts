@@ -7,7 +7,7 @@ import {
   runActionPlanRequest,
   runCopilotRequest,
   runExecutiveBriefRequest,
-} from './api/_gemini';
+} from './server-gemini';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

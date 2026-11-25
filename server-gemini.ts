@@ -1,53 +1,5 @@
 import { GoogleGenAI, Type } from '@google/genai';
 
-export interface ApiRequest {
-  method?: string;
-  body?: unknown;
-  on?: (event: string, cb: (chunk: Uint8Array | string) => void) => void;
-}
-
-export interface ApiResponse {
-  statusCode: number;
-  setHeader: (name: string, value: string) => void;
-  end: (chunk?: string) => void;
-}
-
-export function sendJson(res: ApiResponse, status: number, payload: unknown): void {
-  res.statusCode = status;
-  res.setHeader('Content-Type', 'application/json; charset=utf-8');
-  res.end(JSON.stringify(payload));
-}
-
-export async function readJsonBody(req: ApiRequest): Promise<Record<string, unknown>> {
-  if (req.body && typeof req.body === 'object' && !Buffer.isBuffer(req.body)) {
-    return req.body as Record<string, unknown>;
-  }
-  if (typeof req.body === 'string' && req.body.trim()) {
-    try {
-      return JSON.parse(req.body) as Record<string, unknown>;
-    } catch {
-      return {};
-    }
-  }
-  if (typeof req.on !== 'function') {
-    return {};
-  }
-  const raw = await new Promise<string>((resolve) => {
-    const chunks: string[] = [];
-    req.on?.('data', (chunk) => {
-      chunks.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8'));
-    });
-    req.on?.('end', () => resolve(chunks.join('')));
-    req.on?.('error', () => resolve(''));
-  });
-  if (!raw.trim()) return {};
-  try {
-    return JSON.parse(raw) as Record<string, unknown>;
-  } catch {
-    return {};
-  }
-}
-
 export function resolveGeminiApiKey(): string {
   const viteEnv = (import.meta as { env?: Record<string, string | undefined> }).env;
   const candidates = [
